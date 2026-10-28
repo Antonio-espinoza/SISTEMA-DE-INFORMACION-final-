@@ -3,6 +3,9 @@ require_once 'config.php';
 require_once 'helpers.php';
 requerir_login();
 
+// Valor sugerido de stock mínimo para un producto nuevo (se puede cambiar, pero nunca puede ser 0)
+const STOCK_MINIMO_DEFECTO = 1;
+
 $active = 'productos';
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 $esEdicion = $id > 0;
@@ -11,7 +14,7 @@ $categorias = $pdo->query('SELECT * FROM categorias WHERE estado = "activo" ORDE
 
 $producto = [
     'codigo' => '', 'nombre' => '', 'descripcion' => '', 'id_categoria' => $categorias[0]['id_categoria'] ?? 0,
-    'precio' => '', 'stock_actual' => 0, 'stock_minimo' => 0,
+    'precio' => '', 'stock_actual' => '', 'stock_minimo' => STOCK_MINIMO_DEFECTO,
 ];
 $errores = [];
 $esNueva = false;        // ¿eligió "crear nueva categoría"?
@@ -38,10 +41,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $producto['nombre']       = trim($_POST['nombre'] ?? '');
     $producto['descripcion']  = trim($_POST['descripcion'] ?? '');
     $producto['id_categoria'] = $esNueva ? 0 : (int) $categoriaPost;
-    $producto['precio']       = (float) ($_POST['precio'] ?? -1);
-    // El stock actual sólo se define al crear; luego se mueve con movimientos.
-    $producto['stock_actual'] = $esEdicion ? $producto['stock_actual'] : (int) ($_POST['stock_actual'] ?? -1);
-    $producto['stock_minimo'] = (int) ($_POST['stock_minimo'] ?? -1);
+    $producto['precio']       = (float) ($_POST['precio'] ?? 0);
+
+    $producto['stock_minimo'] = (int) ($_POST['stock_minimo'] ?? 0);
+    if (!$esEdicion) {
+        // El stock actual solo se define al crear; luego cambia con movimientos
+        $producto['stock_actual'] = (int) ($_POST['stock_actual'] ?? -1);
+    }
 
     // --- Reglas de negocio ---
     if ($producto['codigo'] === '')        $errores[] = 'El código es obligatorio.';
@@ -52,9 +58,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($producto['id_categoria'] <= 0) {
         $errores[] = 'Elige una categoría.';
     }
-    if ($producto['precio'] < 0)           $errores[] = 'El precio no puede ser negativo.';
-    if ($producto['stock_actual'] < 0)     $errores[] = 'El stock actual no puede ser negativo.';
-    if ($producto['stock_minimo'] < 0)     $errores[] = 'El stock mínimo no puede ser negativo.';
+
+    // Precio: no se admite 0 (ni negativos ni decimales que se redondeen a 0)
+    if ($producto['precio'] < 1)           $errores[] = 'El precio debe ser mayor a 0 (mínimo $1).';
+
+    // Stock mínimo: editable, pero nunca 0 (ni negativo)
+    if ($producto['stock_minimo'] < 1)     $errores[] = 'El stock mínimo debe ser al menos 1 (no puede ser 0).';
+
+    // Producto nuevo: stock inicial MAYOR al stock mínimo elegido
+    if (!$esEdicion && $producto['stock_minimo'] >= 1 && $producto['stock_actual'] <= $producto['stock_minimo']) {
+        $errores[] = 'El stock inicial (' . $producto['stock_actual'] . ') debe ser mayor al stock mínimo (' . $producto['stock_minimo'] . ').';
+    }
 
     // Código no puede repetirse
     if (empty($errores)) {
@@ -77,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($existente !== false) {
                     $producto['id_categoria'] = (int) $existente;
-                    // Si estaba desactivada, se reactiva para poder usarla
                     $pdo->prepare('UPDATE categorias SET estado = "activo" WHERE id_categoria = :id')
                         ->execute(['id' => $existente]);
                 } else {
@@ -142,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
   <?php endif; ?>
 
-  <form class="form" method="post">
+  <form class="form" method="post" id="formProducto" novalidate>
     <div class="form-row">
       <label>
         Código
@@ -182,7 +195,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="form-row">
       <label>
         Precio
-        <input type="number" step="1" min="0" name="precio" value="<?= htmlspecialchars((string)$producto['precio']) ?>" required>
+        <input type="number" step="1" min="1" name="precio" id="inpPrecio"
+               placeholder="mayor a 0"
+               value="<?= ($producto['precio'] !== '' && (float)$producto['precio'] >= 1) ? htmlspecialchars((string)(int)$producto['precio']) : '' ?>">
       </label>
 
       <?php if ($esEdicion): ?>
@@ -190,22 +205,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           Stock actual
           <input type="number" value="<?= (int)$producto['stock_actual'] ?>" disabled>
         </label>
+        <label>
+          Stock mínimo
+          <input type="number" step="1" min="1" name="stock_minimo" id="inpMinimo"
+                 value="<?= (int)$producto['stock_minimo'] ?>">
+        </label>
       <?php else: ?>
         <label>
           Stock inicial
-          <input type="number" step="1" min="0" name="stock_actual" value="<?= htmlspecialchars((string)$producto['stock_actual']) ?>" required>
+          <input type="number" step="1" min="2" name="stock_actual" id="inpStock"
+                 placeholder="mayor al mínimo"
+                 value="<?= ($producto['stock_actual'] !== '') ? (int)$producto['stock_actual'] : '' ?>">
+        </label>
+        <label>
+          Stock mínimo
+          <input type="number" step="1" min="1" name="stock_minimo" id="inpMinimo"
+                 value="<?= (int)$producto['stock_minimo'] ?>">
         </label>
       <?php endif; ?>
-
-      <label>
-        Stock mínimo
-        <input type="number" step="1" min="0" name="stock_minimo" value="<?= htmlspecialchars((string)$producto['stock_minimo']) ?>" required>
-      </label>
     </div>
 
-    <?php if ($esEdicion): ?>
+    <?php if (!$esEdicion): ?>
+      <p class="subtitle" style="margin:0;">El stock mínimo parte en <?= STOCK_MINIMO_DEFECTO ?> y puedes cambiarlo, pero no puede ser 0. El stock inicial debe ser mayor al mínimo y el precio mayor a 0.</p>
+    <?php else: ?>
       <p class="subtitle" style="margin:0;">El stock actual solo cambia registrando <a href="movimiento_nuevo.php?producto=<?= $id ?>">movimientos de entrada o salida</a>.</p>
     <?php endif; ?>
+
+    <p class="flash flash-error" id="msgError" style="display:none; margin:0;"></p>
 
     <div class="form-actions">
       <button type="submit" class="btn">guardar</button>
@@ -215,11 +241,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 <footer class="foot">
-  <span>TecnoStock · sistema de inventario</span>
+  <span>TecnoStock · sistema de inventario · validaciones v3</span>
 </footer>
 
 <script>
-// Muestra el campo de texto solo cuando se elige "Crear nueva categoría..."
+// ---- Categoría nueva: muestra el campo de texto solo cuando se elige esa opción ----
 const selCat = document.getElementById('selCategoria');
 const boxNueva = document.getElementById('boxNuevaCategoria');
 const inpNueva = document.getElementById('inpNuevaCategoria');
@@ -227,11 +253,43 @@ const inpNueva = document.getElementById('inpNuevaCategoria');
 function alternarNuevaCategoria() {
   const esNueva = selCat.value === 'nueva';
   boxNueva.style.display = esNueva ? 'flex' : 'none';
-  inpNueva.required = esNueva;
   if (esNueva) inpNueva.focus();
 }
 selCat.addEventListener('change', alternarNuevaCategoria);
 alternarNuevaCategoria();
+
+// ---- Validaciones inmediatas (se repiten igual en PHP) ----
+const form      = document.getElementById('formProducto');
+const inpPrecio = document.getElementById('inpPrecio');
+const inpStock  = document.getElementById('inpStock');   // solo existe al crear
+const inpMinimo = document.getElementById('inpMinimo');
+const msgError  = document.getElementById('msgError');
+
+form.addEventListener('submit', function (e) {
+  const errores = [];
+
+  const precio = parseFloat(inpPrecio.value);
+  if (isNaN(precio) || precio < 1) {
+    errores.push('El precio debe ser mayor a 0 (mínimo $1).');
+  }
+
+  // Stock mínimo: no puede ser 0 (ni vacío ni negativo)
+  const minimo = parseInt(inpMinimo.value, 10);
+  if (isNaN(minimo) || minimo < 1) {
+    errores.push('El stock mínimo debe ser al menos 1 (no puede ser 0).');
+  } else if (inpStock) { // solo al crear el producto
+    const stock = parseInt(inpStock.value, 10);
+    if (isNaN(stock) || stock <= minimo) {
+      errores.push('El stock inicial debe ser mayor al stock mínimo (' + minimo + '): ingresa ' + (minimo + 1) + ' o más.');
+    }
+  }
+
+  if (errores.length > 0) {
+    e.preventDefault();
+    msgError.innerHTML = errores.join('<br>');
+    msgError.style.display = 'block';
+  }
+});
 </script>
 
 </body>
