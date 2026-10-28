@@ -1,0 +1,58 @@
+TECNOSTOCK — Sistema de inventario
+====================================
+
+1) BASE DE DATOS
+   - Enciende MySQL en el panel de XAMPP.
+   - Abre http://localhost/phpmyadmin
+   - Pestaña "Importar" → selecciona tecnostock.sql → Ejecutar.
+     Esto crea la base "tecnostock" con tablas, usuario admin y
+     productos de ejemplo (accesorios tecnológicos).
+
+2) SERVIDOR WEB
+   - Enciende Apache en el panel de XAMPP.
+   - Copia la carpeta "tecnostock-web" completa dentro de:
+       Windows: C:\xampp\htdocs\
+       Mac:     /Applications/XAMPP/htdocs/
+   - Abre en el navegador: http://localhost/tecnostock-web/
+     (te redirigirá al login si no has iniciado sesión)
+
+3) USUARIO DE PRUEBA
+   correo:     admin@tecnostock.cl
+   contraseña: admin123
+
+PÁGINAS INCLUIDAS
+------------------
+- login.php / logout.php     Inicio y cierre de sesión (tabla "usuarios").
+- index.php                  Panel: totales, valor de inventario y
+                              alerta de productos con stock bajo el mínimo.
+- productos.php               Listado con búsqueda por nombre, código o
+                              categoría. Botón "desactivar" / "reactivar"
+                              (nunca se elimina un producto físicamente).
+- producto_form.php           Crear o editar un producto. Valida que el
+                              código no se repita y que precio/stock no
+                              sean negativos. El stock inicial solo se
+                              define al crear; después solo cambia con
+                              movimientos.
+- movimiento_nuevo.php        Registrar una entrada o salida de stock.
+                              Una salida no puede dejar el stock bajo cero
+                              (se valida en el navegador con JavaScript y
+                              de nuevo en el servidor con PHP).
+- movimientos.php             Historial completo (kardex), filtrable por
+                              producto: fecha, tipo, cantidad, observación
+                              y usuario responsable de cada movimiento.
+
+REGLAS DE NEGOCIO IMPLEMENTADAS
+--------------------------------
+- El código de producto no se repite (UNIQUE en la base + validación en
+  el formulario).
+- Precio, stock actual, stock mínimo y cantidad de un movimiento nunca
+  son negativos (CHECK en la base + validación en PHP).
+- Toda entrada o salida queda registrada con fecha, tipo, cantidad,
+  producto y usuario responsable (tabla "movimientos").
+- Una salida no puede dejar el stock bajo cero (se verifica antes de
+  confirmar, dentro de una transacción SQL).
+- Un producto con movimientos no se borra: se desactiva (estado
+  "inactivo"), y puede reactivarse.
+- El stock se actualiza automáticamente después de cada movimiento
+  válido (no se edita el stock a mano, salvo el stock inicial al crear
+  el producto).
