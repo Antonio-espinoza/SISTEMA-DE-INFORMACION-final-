@@ -1,6 +1,5 @@
 <?php
-// Conexión a la base de datos "tecnostock" (creada con tecnostock.sql)
-// Ajusta $user / $pass si tu MySQL de XAMPP no usa las credenciales por defecto.
+
 
 $host = 'localhost';
 $db   = 'tecnostock';
